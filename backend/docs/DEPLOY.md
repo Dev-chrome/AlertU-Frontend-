@@ -15,20 +15,18 @@ No local file storage is used, so it can run on any container host.
 1. Commit and push the backend changes and `render.yaml` to GitHub.
 2. In Render, choose **New → Blueprint** and select this repository and branch.
 3. Render reads `render.yaml` and creates the `alertu-backend` web service.
-4. Fill in the three secret environment variables:
+4. Fill in the two secret environment variables:
 
 | Variable | Value |
 |---|---|
 | `DATABASE_URL` | Copy from `backend/.env` |
-| `JWT_SECRET` | At least 32 random characters |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | Base64 of the service account file |
 
-Generate the values locally:
+`JWT_SECRET` is generated automatically by Render.
+
+Generate the service account value locally:
 
 ```bash
-# JWT secret
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-
 # Firebase service account (single line, no wrapping)
 base64 -w0 backend/secrets/firebase-service-account.json
 ```

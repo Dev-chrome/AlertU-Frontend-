@@ -22,9 +22,6 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: JWT_SECRET
-        sync: false
+        generateValue: true
       - key: FIREBASE_SERVICE_ACCOUNT_JSON
-        sync: false
-      # Optional: only needed if a browser/web client calls the API.
-      - key: CORS_ORIGIN
         sync: false
