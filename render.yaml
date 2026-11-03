@@ -2,11 +2,11 @@ services:
   - type: web
     name: alertu-backend
     runtime: docker
-    rootDir: backend
-    dockerfilePath: ./Dockerfile
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
     plan: free
     healthCheckPath: /health/live
-    autoDeploy: true
+    autoDeployTrigger: commit
     envVars:
       - key: NODE_ENV
         value: production
