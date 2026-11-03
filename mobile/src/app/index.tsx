@@ -1,98 +1,72 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Image } from 'expo-image';
+import { router } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { Logo } from '@/components/ui/logo';
+import { Text } from '@/components/ui/text';
+import { images } from '@/constants/images';
+import { useAuth } from '@/context/auth';
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
+export default function SplashScreen() {
+  const { user, isInitializing } = useAuth();
+
+  useEffect(() => {
+    if (isInitializing) return;
+
+    const timer = setTimeout(() => {
+      router.replace(user ? '/home' : '/onboarding');
+    }, 2600);
+    return () => clearTimeout(timer);
+  }, [isInitializing, user]);
+
   return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Enter AlertU"
+      onPress={() => router.replace(user ? '/home' : '/onboarding')}
+      className="flex-1 bg-navy-950">
+      <StatusBar style="light" />
+      <Image
+        source={images.splashCampus}
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+        transition={300}
+      />
+      <LinearGradient
+        colors={[
+          'rgba(4, 17, 33, 0.97)',
+          'rgba(5, 21, 40, 0.72)',
+          'rgba(5, 20, 38, 0.12)',
+          'rgba(4, 17, 33, 0.88)',
+          '#061426',
+        ]}
+        locations={[0, 0.32, 0.58, 0.86, 1]}
+        style={StyleSheet.absoluteFill}
+      />
 
-export default function HomeScreen() {
-  return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
+      <SafeAreaView className="flex-1 px-8" edges={['top', 'bottom']}>
+        <View className="flex-1" />
 
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
+        <View className="items-center justify-center">
+          <Logo variant="light" />
+        </View>
 
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
-
-        {Platform.OS === 'web' && <WebBadge />}
+        <View className="flex-1 items-center justify-end pb-10">
+          <View className="mb-7 flex-row items-center gap-2">
+            <View className="h-2 w-5 rounded-full bg-white" />
+            <View className="h-2 w-2 rounded-full bg-white/35" />
+            <View className="h-2 w-2 rounded-full bg-white/35" />
+          </View>
+          <Text weight="medium" className="text-[11px] tracking-[0.6px] text-white/80">
+            Campus Safety <Text className="text-yellow">·</Text> Community{' '}
+            <Text className="text-yellow">·</Text> You
+          </Text>
+        </View>
       </SafeAreaView>
-    </ThemedView>
+    </Pressable>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
-  },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
-  },
-  title: {
-    textAlign: 'center',
-  },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
-  },
-});

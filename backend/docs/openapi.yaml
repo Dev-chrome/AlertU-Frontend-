@@ -1,0 +1,1171 @@
+openapi: 3.0.3
+info:
+  title: AlertU API
+  version: 1.0.0
+  description: |
+    Campus-safety API for AlertU. Authenticated endpoints require a Firebase ID
+    token in the `Authorization: Bearer <token>` header. The server verifies the
+    token and resolves the local PostgreSQL user; roles and campus scope are
+    never accepted from the client payload.
+servers:
+  - url: http://localhost:4000
+    description: Local development
+tags:
+  - name: Health
+  - name: Identity
+  - name: Reports
+  - name: Incidents
+  - name: Moderation
+  - name: Posts
+  - name: Devices
+  - name: Notifications
+  - name: Maps
+security:
+  - bearerAuth: []
+paths:
+  /:
+    get:
+      tags: [Health]
+      summary: API metadata
+      security: []
+      responses:
+        '200':
+          description: API name, version, and documentation paths
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      name: { type: string, example: AlertU API }
+                      version: { type: string, example: 1.0.0 }
+                      documentation: { type: string, example: /docs/API.md }
+                      health: { type: string, example: /health }
+  /health:
+    get:
+      tags: [Health]
+      summary: Readiness and database health
+      security: []
+      responses:
+        '200':
+          description: Database reachable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  timestamp: { type: string, format: date-time }
+                  uptimeSeconds: { type: integer }
+                  database:
+                    type: object
+                    properties:
+                      status: { type: string, example: up }
+                      latencyMs: { type: integer }
+        '503':
+          description: Database unavailable
+  /health/live:
+    get:
+      tags: [Health]
+      summary: Liveness probe (no database access)
+      security: []
+      responses:
+        '200':
+          description: Process is alive
+  /me:
+    get:
+      tags: [Identity]
+      summary: Get the authenticated profile
+      description: Provisions a student profile on first use.
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /reports:
+    post:
+      tags: [Reports]
+      summary: Submit a campus report
+      description: |
+        Creates a report, an incident cluster, and an initial active link in one
+        transaction. Provide latitude/longitude or an address. Address-only
+        requests require the server-side Google Maps key.
+      responses:
+        '201':
+          description: Report created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      report: { $ref: '#/components/schemas/Report' }
+                      incidentId: { type: string, format: uuid }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [category, description, locationName]
+              properties:
+                campusId: { type: string, format: uuid }
+                category: { $ref: '#/components/schemas/Category' }
+                description: { type: string, minLength: 5, maxLength: 4000 }
+                observedAt: { type: string, format: date-time }
+                locationName: { type: string, minLength: 2, maxLength: 200 }
+                latitude: { type: number, minimum: -90, maximum: 90 }
+                longitude: { type: number, minimum: -180, maximum: 180 }
+                address: { type: string, minLength: 5, maxLength: 300 }
+                mediaRefs:
+                  type: array
+                  maxItems: 5
+                  items: { type: string, format: uri }
+                isAnonymous: { type: boolean, default: true }
+            example:
+              category: safety
+              description: Flooding is blocking the walkway near the library entrance.
+              locationName: University Library
+              latitude: 6.5244
+              longitude: 3.3792
+              isAnonymous: true
+    get:
+      tags: [Reports]
+      summary: List the caller's reports
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Paginated reports
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Report' }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /reports/{id}:
+    get:
+      tags: [Reports]
+      summary: Get a report (owner or moderator)
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Report with incident links for the owner/moderator
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Report' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /incidents:
+    get:
+      tags: [Incidents]
+      summary: Public incident feed
+      security:
+        - bearerAuth: []
+        - {}
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/IncidentStatus' }
+        - name: category
+          in: query
+          schema: { $ref: '#/components/schemas/Category' }
+        - name: campusId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: q
+          in: query
+          schema: { type: string, minLength: 2, maxLength: 100 }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - name: bbox
+          in: query
+          description: minLng,minLat,maxLng,maxLat
+          schema: { type: string, example: '3.3,6.5,3.5,6.7' }
+        - name: includeResolved
+          in: query
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: Paginated incidents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Incident' }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+  /incidents/{id}:
+    get:
+      tags: [Incidents]
+      summary: Incident detail and timeline
+      security:
+        - bearerAuth: []
+        - {}
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Incident detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/IncidentDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /incidents/{id}/updates:
+    post:
+      tags: [Incidents]
+      summary: Add an observation to an open incident
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [description]
+              properties:
+                description: { type: string, minLength: 3, maxLength: 2000 }
+                observedAt: { type: string, format: date-time }
+                locationName: { type: string, minLength: 2, maxLength: 200 }
+                latitude: { type: number, minimum: -90, maximum: 90 }
+                longitude: { type: number, minimum: -180, maximum: 180 }
+                mediaRefs:
+                  type: array
+                  maxItems: 5
+                  items: { type: string, format: uri }
+                isAnonymous: { type: boolean, default: true }
+      responses:
+        '201':
+          description: Observation recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      update: { $ref: '#/components/schemas/IncidentUpdate' }
+                      incident: { $ref: '#/components/schemas/Incident' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /moderation/queue:
+    get:
+      tags: [Moderation]
+      summary: Review queue
+      description: Requires moderator or admin.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/IncidentStatus' }
+        - name: campusId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Paginated queue
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Incident' }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /moderation/reports:
+    get:
+      tags: [Moderation]
+      summary: Raw reports for review
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: campusId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: q
+          in: query
+          schema: { type: string, minLength: 2, maxLength: 100 }
+      responses:
+        '200':
+          description: Paginated reports with reporter identity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Report' }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /moderation/incidents/{id}/decision:
+    post:
+      tags: [Moderation]
+      summary: Record a moderator status decision
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [status, reasonCode]
+              properties:
+                status: { $ref: '#/components/schemas/IncidentStatus' }
+                reasonCode: { $ref: '#/components/schemas/ReasonCode' }
+                evidenceNote:
+                  type: string
+                  maxLength: 4000
+                  description: Required (>=10 chars) for verified, disputed, or rejected.
+                publicSummary: { type: string, minLength: 10, maxLength: 1000 }
+                expiresAt: { type: string, format: date-time }
+            example:
+              status: verified
+              reasonCode: evidence_sufficient
+              evidenceNote: Campus security and facilities independently confirmed the flooding.
+              publicSummary: Campus security confirmed flooding near the library walkway.
+      responses:
+        '200':
+          description: Decision recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      incident: { $ref: '#/components/schemas/Incident' }
+                      action: { $ref: '#/components/schemas/ModerationAction' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /moderation/clusters/{id}/merge:
+    post:
+      tags: [Moderation]
+      summary: Merge source incidents into this cluster
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [sourceIncidentIds, reasonCode, rationale]
+              properties:
+                sourceIncidentIds:
+                  type: array
+                  minItems: 1
+                  maxItems: 20
+                  items: { type: string, format: uuid }
+                reasonCode: { $ref: '#/components/schemas/ReasonCode' }
+                rationale: { type: string, minLength: 10, maxLength: 2000 }
+                title: { type: string, minLength: 3, maxLength: 160 }
+                publicSummary: { type: string, minLength: 10, maxLength: 1000 }
+      responses:
+        '200':
+          description: Merge completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      incident: { $ref: '#/components/schemas/Incident' }
+                      sourceIncidentIds:
+                        type: array
+                        items: { type: string, format: uuid }
+                      mergedReportCount: { type: integer }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /moderation/clusters/{id}/split:
+    post:
+      tags: [Moderation]
+      summary: Split selected reports into a new incident
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reportIds, reasonCode, rationale]
+              properties:
+                reportIds:
+                  type: array
+                  minItems: 1
+                  maxItems: 50
+                  items: { type: string, format: uuid }
+                reasonCode: { $ref: '#/components/schemas/ReasonCode' }
+                rationale: { type: string, minLength: 10, maxLength: 2000 }
+                title: { type: string, minLength: 3, maxLength: 160 }
+                category: { $ref: '#/components/schemas/Category' }
+                publicSummary: { type: string, minLength: 10, maxLength: 1000 }
+                locationName: { type: string, minLength: 2, maxLength: 200 }
+                latitude: { type: number, minimum: -90, maximum: 90 }
+                longitude: { type: number, minimum: -180, maximum: 180 }
+                affectedRadiusMeters: { type: integer, minimum: 10, maximum: 5000 }
+      responses:
+        '201':
+          description: New incident created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      sourceIncident: { $ref: '#/components/schemas/Incident' }
+                      incident: { $ref: '#/components/schemas/Incident' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /posts:
+    get:
+      tags: [Posts]
+      summary: List published posts
+      security:
+        - bearerAuth: []
+        - {}
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: type
+          in: query
+          schema: { type: string, enum: [gist, news, event] }
+        - name: campusId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: authorUserId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: q
+          in: query
+          schema: { type: string, minLength: 2, maxLength: 100 }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [latest, popular], default: latest }
+      responses:
+        '200':
+          description: Paginated posts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Post' }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+    post:
+      tags: [Posts]
+      summary: Create a post, gist, news item, or event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [body]
+              properties:
+                campusId: { type: string, format: uuid }
+                type: { type: string, enum: [gist, news, event], default: gist }
+                title: { type: string, minLength: 3, maxLength: 160 }
+                body: { type: string, minLength: 1, maxLength: 5000 }
+                mediaRefs:
+                  type: array
+                  maxItems: 5
+                  items: { type: string, format: uri }
+                tags:
+                  type: array
+                  maxItems: 10
+                  items: { type: string, minLength: 1, maxLength: 30 }
+            example:
+              type: gist
+              body: Does anyone know if the library is open today?
+              tags: [library]
+      responses:
+        '201':
+          description: Post created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Post' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /posts/{id}:
+    get:
+      tags: [Posts]
+      summary: Get a post
+      security:
+        - bearerAuth: []
+        - {}
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Post
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Post' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Posts]
+      summary: Soft-delete a post (author or moderator)
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '204': { description: Post removed }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /posts/{id}/like:
+    post:
+      tags: [Posts]
+      summary: Like a post (idempotent)
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Like state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/LikeState' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Posts]
+      summary: Remove a like (idempotent)
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Like state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/LikeState' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /posts/{id}/comments:
+    get:
+      tags: [Posts]
+      summary: List comments
+      security:
+        - bearerAuth: []
+        - {}
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Paginated visible comments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Comment' }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Posts]
+      summary: Add a comment
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [body]
+              properties:
+                body: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        '201':
+          description: Comment created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      comment: { $ref: '#/components/schemas/Comment' }
+                      commentCount: { type: integer }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /posts/{id}/comments/{commentId}:
+    delete:
+      tags: [Posts]
+      summary: Hide a comment (author or moderator)
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - name: commentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Comment hidden }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /devices:
+    get:
+      tags: [Devices]
+      summary: List the caller's active devices
+      responses:
+        '200':
+          description: Devices
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Device' }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+  /devices/push-token:
+    post:
+      tags: [Devices]
+      summary: Register or refresh a push token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token, platform]
+              properties:
+                token: { type: string, minLength: 20, maxLength: 4096 }
+                platform: { type: string, enum: [android, ios, web] }
+                appVersion: { type: string, maxLength: 32 }
+            example:
+              token: ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]
+              platform: android
+              appVersion: 1.0.0
+      responses:
+        '200': { description: Existing token refreshed }
+        '201': { description: New token registered }
+        '400': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Devices]
+      summary: Deactivate a push token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token]
+              properties:
+                token: { type: string, minLength: 20, maxLength: 4096 }
+      responses:
+        '204': { description: Token deactivated or already absent }
+  /notification-preferences:
+    get:
+      tags: [Notifications]
+      summary: Get notification preferences
+      responses:
+        '200':
+          description: Preferences, including defaults when no row exists
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/NotificationPreferences' }
+    put:
+      tags: [Notifications]
+      summary: Update notification preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                enabled: { type: boolean }
+                categories:
+                  type: array
+                  items: { $ref: '#/components/schemas/Category' }
+            example:
+              enabled: true
+              categories: [safety, fire]
+      responses:
+        '200':
+          description: Updated preferences
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/NotificationPreferences' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+  /maps/status:
+    get:
+      tags: [Maps]
+      summary: Check whether server-side geocoding is configured
+      responses:
+        '200':
+          description: Configuration status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      configured: { type: boolean }
+  /maps/geocode:
+    post:
+      tags: [Maps]
+      summary: Geocode an address (server-side key)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [address]
+              properties:
+                address: { type: string, minLength: 5, maxLength: 300 }
+      responses:
+        '200':
+          description: Up to five matches
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      results:
+                        type: array
+                        items: { $ref: '#/components/schemas/GeocodeResult' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /maps/reverse-geocode:
+    post:
+      tags: [Maps]
+      summary: Reverse geocode coordinates
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [latitude, longitude]
+              properties:
+                latitude: { type: number, minimum: -90, maximum: 90 }
+                longitude: { type: number, minimum: -180, maximum: 180 }
+      responses:
+        '200':
+          description: Up to three matches
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      results:
+                        type: array
+                        items: { $ref: '#/components/schemas/GeocodeResult' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Firebase ID token
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+  responses:
+    Unauthorized:
+      description: Missing or invalid token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Forbidden:
+      description: Role, ownership, account, or campus check failed
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Resource not found or intentionally hidden
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: Conflicting state or disallowed transition
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    ValidationError:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unprocessable:
+      description: Provider returned no matching result
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    ServiceUnavailable:
+      description: External service or database unavailable/not configured
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, example: VALIDATION_ERROR }
+            message: { type: string }
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  path: { type: string }
+                  message: { type: string }
+                  code: { type: string }
+        requestId: { type: string, format: uuid }
+    PaginationMeta:
+      type: object
+      properties:
+        page: { type: integer }
+        limit: { type: integer }
+        total: { type: integer }
+        totalPages: { type: integer }
+        hasMore: { type: boolean }
+    Category:
+      type: string
+      enum: [safety, harassment, theft, vandalism, infrastructure, medical, fire, other]
+    IncidentStatus:
+      type: string
+      enum: [reported, candidate, corroborated, under_review, verified, disputed, rejected, resolved, expired, reopened]
+    ReasonCode:
+      type: string
+      enum:
+        - evidence_sufficient
+        - evidence_insufficient
+        - duplicate
+        - false_report
+        - condition_cleared
+        - condition_expired
+        - new_evidence
+        - policy_violation
+        - merged
+        - split
+        - other
+    Campus:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        timezone: { type: string }
+    UserSummary:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        displayName: { type: string }
+        role: { type: string, enum: [student, moderator, admin] }
+    User:
+      allOf:
+        - $ref: '#/components/schemas/UserSummary'
+        - type: object
+          properties:
+            firebaseUid: { type: string }
+            email: { type: string, nullable: true, format: email }
+            campusId: { type: string, format: uuid, nullable: true }
+            campus: { $ref: '#/components/schemas/Campus' }
+            accountStatus: { type: string, enum: [active, suspended, deactivated] }
+            lastSeenAt: { type: string, format: date-time, nullable: true }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    Report:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        category: { $ref: '#/components/schemas/Category' }
+        description: { type: string }
+        observedAt: { type: string, format: date-time }
+        submittedAt: { type: string, format: date-time }
+        locationName: { type: string }
+        latitude: { type: number }
+        longitude: { type: number }
+        mediaRefs:
+          type: array
+          items: { type: string, format: uri }
+        isAnonymous: { type: boolean }
+        campusId: { type: string, format: uuid }
+        reporterUserId:
+          type: string
+          format: uuid
+          description: Omitted for other students; present for the owner and moderators.
+        reporter: { $ref: '#/components/schemas/UserSummary' }
+        incidents:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string, format: uuid }
+              title: { type: string }
+              status: { $ref: '#/components/schemas/IncidentStatus' }
+              linkedAt: { type: string, format: date-time }
+    Freshness:
+      type: object
+      properties:
+        isStale: { type: boolean }
+        expiresAt: { type: string, format: date-time, nullable: true }
+        ageMinutes: { type: integer, nullable: true }
+        expiresInMinutes: { type: integer, nullable: true }
+    Incident:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        campusId: { type: string, format: uuid }
+        campus: { $ref: '#/components/schemas/Campus' }
+        title: { type: string }
+        category: { $ref: '#/components/schemas/Category' }
+        status: { $ref: '#/components/schemas/IncidentStatus' }
+        statusLabel: { type: string }
+        publicSummary: { type: string, nullable: true }
+        firstSeenAt: { type: string, format: date-time }
+        lastSeenAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time, nullable: true }
+        locationName: { type: string }
+        latitude: { type: number }
+        longitude: { type: number }
+        affectedRadiusMeters: { type: integer }
+        reportCount: { type: integer }
+        freshness: { $ref: '#/components/schemas/Freshness' }
+        createdByUserId:
+          type: string
+          format: uuid
+          description: Moderator-only.
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    IncidentUpdate:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        description: { type: string }
+        observedAt: { type: string, format: date-time }
+        locationName: { type: string, nullable: true }
+        mediaRefs:
+          type: array
+          items: { type: string, format: uri }
+        isAnonymous: { type: boolean }
+        author:
+          allOf:
+            - $ref: '#/components/schemas/UserSummary'
+          description: Moderator-only.
+        createdAt: { type: string, format: date-time }
+    TimelineEntry:
+      type: object
+      properties:
+        id: { type: string }
+        type: { type: string, enum: [report_received, observation, moderation] }
+        description: { type: string }
+        status: { $ref: '#/components/schemas/IncidentStatus' }
+        action: { type: string }
+        reasonCode: { $ref: '#/components/schemas/ReasonCode' }
+        beforeStatus: { $ref: '#/components/schemas/IncidentStatus' }
+        afterStatus: { $ref: '#/components/schemas/IncidentStatus' }
+        observedAt: { type: string, format: date-time }
+        locationName: { type: string }
+        createdAt: { type: string, format: date-time }
+    IncidentDetail:
+      allOf:
+        - $ref: '#/components/schemas/Incident'
+        - type: object
+          properties:
+            timeline:
+              type: array
+              items: { $ref: '#/components/schemas/TimelineEntry' }
+            reports:
+              type: array
+              description: Moderator-only raw source reports.
+              items: { $ref: '#/components/schemas/Report' }
+    ModerationAction:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        action: { type: string }
+        reasonCode: { $ref: '#/components/schemas/ReasonCode' }
+        beforeStatus: { $ref: '#/components/schemas/IncidentStatus' }
+        afterStatus: { $ref: '#/components/schemas/IncidentStatus' }
+        actor: { $ref: '#/components/schemas/UserSummary' }
+        evidenceNote: { type: string, nullable: true }
+        metadata: { type: object, additionalProperties: true }
+        createdAt: { type: string, format: date-time }
+    Post:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        campusId: { type: string, format: uuid }
+        type: { type: string, enum: [gist, news, event] }
+        title: { type: string, nullable: true }
+        body: { type: string }
+        mediaRefs:
+          type: array
+          items: { type: string, format: uri }
+        tags:
+          type: array
+          items: { type: string }
+        isPinned: { type: boolean }
+        likeCount: { type: integer }
+        commentCount: { type: integer }
+        liked: { type: boolean }
+        isOwner: { type: boolean }
+        author: { $ref: '#/components/schemas/UserSummary' }
+        status:
+          type: string
+          enum: [published, hidden, removed]
+          description: Present only for the author and moderators.
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    Comment:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        postId: { type: string, format: uuid }
+        body: { type: string }
+        author: { $ref: '#/components/schemas/UserSummary' }
+        isOwner: { type: boolean }
+        status:
+          type: string
+          enum: [visible, hidden]
+          description: Present only for moderators.
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    LikeState:
+      type: object
+      properties:
+        liked: { type: boolean }
+        likeCount: { type: integer }
+        postId: { type: string, format: uuid }
+    Device:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        platform: { type: string, enum: [android, ios, web] }
+        appVersion: { type: string, nullable: true }
+        active: { type: boolean }
+        lastSeenAt: { type: string, format: date-time }
+    NotificationPreferences:
+      type: object
+      properties:
+        id: { type: string, format: uuid, nullable: true }
+        userId: { type: string, format: uuid }
+        enabled: { type: boolean }
+        categories:
+          type: array
+          items: { $ref: '#/components/schemas/Category' }
+        isDefault: { type: boolean }
+    GeocodeResult:
+      type: object
+      properties:
+        formattedAddress: { type: string }
+        latitude: { type: number }
+        longitude: { type: number }
+        placeId: { type: string }
+        locationType: { type: string }
+        types:
+          type: array
+          items: { type: string }

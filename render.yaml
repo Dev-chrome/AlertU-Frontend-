@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: alertu-backend
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health/live
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PUSH_PROVIDER
+        value: fcm
+      - key: PUSH_ENABLED
+        value: "true"
+      - key: TRUST_PROXY
+        value: "1"
+      - key: FIREBASE_PROJECT_ID
+        value: alertu-a7a43
+      # Set these in the Render dashboard when the service is created.
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+      # Optional: only needed if a browser/web client calls the API.
+      - key: CORS_ORIGIN
+        sync: false

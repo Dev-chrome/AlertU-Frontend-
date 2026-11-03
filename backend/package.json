@@ -1,37 +1,57 @@
 {
-  "name": "backend",
+  "name": "alertu-backend",
   "version": "1.0.0",
-  "description": "",
+  "description": "AlertU campus safety REST API",
   "main": "index.js",
-  "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "build": "tsc",
-    "start": "node dist/server.js",
-    "typecheck": "tsc --noEmit",
-    "db:migrate": "sequelize-cli db:migrate",
-    "db:migrate:status": "sequelize-cli db:migrate:status",
-    "db:migrate:undo": "sequelize-cli db:migrate:undo"
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22.0.0"
   },
-  "keywords": [],
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "db:create": "sequelize-cli db:create",
+    "db:migrate": "sequelize-cli db:migrate",
+    "db:migrate:undo": "sequelize-cli db:migrate:undo",
+    "db:migrate:undo:all": "sequelize-cli db:migrate:undo:all",
+    "db:seed": "sequelize-cli db:seed:all",
+    "db:seed:undo": "sequelize-cli db:seed:undo:all",
+    "db:reset": "sequelize-cli db:migrate:undo:all && sequelize-cli db:migrate && sequelize-cli db:seed:all",
+    "user:set-role": "node scripts/set-user-role.js",
+    "notifications:retry": "node scripts/retry-notifications.js",
+    "incidents:expire": "node scripts/expire-incidents.js",
+    "push:test": "node scripts/send-test-push.js",
+    "push:test:latest": "node scripts/send-test-push.js --latest"
+  },
+  "keywords": [
+    "alertu",
+    "campus-safety",
+    "express",
+    "sequelize"
+  ],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
+    "bcrypt": "^6.0.0",
+    "compression": "^1.8.2",
     "cors": "^2.8.6",
     "dotenv": "^18.0.9",
     "express": "^5.3.0",
+    "express-rate-limit": "^8.7.1",
+    "firebase-admin": "^14.5.0",
     "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
     "pg": "^8.23.1",
     "pg-hstore": "^2.3.4",
+    "pino": "^10.4.0",
+    "pino-http": "^11.0.0",
     "sequelize": "^6.37.8",
+    "sequelize-cli": "^6.6.5",
+    "uuid": "^14.0.3",
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.6",
-    "@types/node": "^26.6.5",
-    "sequelize-cli": "^6.6.5",
-    "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "nodemon": "^3.1.14",
+    "pino-pretty": "^13.2.0"
   }
 }

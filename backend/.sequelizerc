@@ -1,7 +1,14 @@
 const path = require('path');
 
+/**
+ * Sequelize CLI path configuration.
+ *
+ * The backend deliberately uses top-level folders (no src/ directory):
+ * config/, models/, migrations/, seeders/.
+ */
 module.exports = {
-  config: path.resolve('sequelize-cli-config.cjs'),
+  config: path.resolve('config', 'config.js'),
+  'models-path': path.resolve('models'),
   'migrations-path': path.resolve('migrations'),
-  'seeders-path': path.resolve('seeders')
+  'seeders-path': path.resolve('seeders'),
 };

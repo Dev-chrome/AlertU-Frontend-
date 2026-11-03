@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "469158474213",
+    "project_id": "alertu-a7a43",
+    "storage_bucket": "alertu-a7a43.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:469158474213:android:636ff8a9c9abec2722ff0c",
+        "android_client_info": {
+          "package_name": "com.promotex.alertu"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "469158474213-fnam32erhrc6lqce8d4j8maol3e68gke.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.promotex.alertu",
+            "certificate_hash": "36c263abfc1d11c47c78fb640c2fde1c182e17f2"
+          }
+        },
+        {
+          "client_id": "469158474213-qqmt3gvmeb6g3r0v4pm3c2ia0mvm0ulj.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCijuhwt52PKaXJ7aDgIdUG96kJom_ZUKs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "469158474213-qqmt3gvmeb6g3r0v4pm3c2ia0mvm0ulj.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
