@@ -10,26 +10,59 @@ import {
 import { getReactNativePersistence } from 'firebase/auth';
 import { Platform } from 'react-native';
 
+import googleServices from '../../google-services.json';
+
+type GoogleServicesConfig = {
+  project_info?: {
+    project_id?: string;
+    project_number?: string;
+    storage_bucket?: string;
+  };
+  client?: {
+    api_key?: { current_key?: string }[];
+    client_info?: { mobilesdk_app_id?: string };
+  }[];
+};
+
+// google-services.json contains public Firebase client identifiers, not private
+// credentials. The service-account private key stays on the backend only.
+const firebaseClient = googleServices as GoogleServicesConfig;
+const androidClient = firebaseClient.client?.[0];
+
 const projectId =
-  process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? 'alertu-a7a43';
+  firebaseClient.project_info?.project_id ??
+  process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID;
 
 const firebaseConfig = {
   apiKey:
-    process.env.EXPO_PUBLIC_FIREBASE_API_KEY ??
-    'AIzaSyCijuhwt52PKaXJ7aDgIdUG96kJom_ZUKs',
+    androidClient?.api_key?.[0]?.current_key ??
+    process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
   authDomain:
     process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ??
-    `${projectId}.firebaseapp.com`,
+    (projectId ? `${projectId}.firebaseapp.com` : undefined),
   projectId,
   storageBucket:
+    firebaseClient.project_info?.storage_bucket ??
     process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ??
-    `${projectId}.firebasestorage.app`,
+    (projectId ? `${projectId}.firebasestorage.app` : undefined),
   messagingSenderId:
-    process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? '469158474213',
+    firebaseClient.project_info?.project_number ??
+    process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
   appId:
-    process.env.EXPO_PUBLIC_FIREBASE_APP_ID ??
-    '1:469158474213:android:636ff8a9c9abec2722ff0c',
+    androidClient?.client_info?.mobilesdk_app_id ??
+    process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
 };
+
+const missingConfig = Object.entries(firebaseConfig)
+  .filter(([, value]) => !value)
+  .map(([key]) => key);
+
+if (missingConfig.length > 0) {
+  throw new Error(
+    `Firebase client configuration is missing: ${missingConfig.join(', ')}. ` +
+      'Check mobile/google-services.json.'
+  );
+}
 
 export const firebaseApp = getApps().length
   ? getApp()
